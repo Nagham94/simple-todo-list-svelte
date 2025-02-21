@@ -1,16 +1,16 @@
 pipeline {
-    agent { label 'agent-vm' } // Specify the agent by its label
+    agent any
 
     environment {
         DOCKER_HUB_REPO = 'nagham94' 
-        GIT_REPO_URL = 'https://github.com/Nagham94/pizza-app2.git'  
+        GIT_REPO_URL = 'https://github.com/Nagham94/pizza-app2.git'
+        IMAGE_TYPE = "backend" // "frontend" or "database" or "backend" will be used in the image name  
     }
 
     stages {
         stage('Checkout Code') {
             steps {
                 script {
-                    // Pull code from the GitHub repository
                     git credentialsId: 'github_token', url: "${GIT_REPO_URL}"
                 }
             }
@@ -19,8 +19,12 @@ pipeline {
         stage('Build Docker Images') {
             steps {
                 script {
-                    // Build and tag images with Docker Compose
-                    sh 'docker-compose build'
+                    sh 'printenv'
+
+                    def imageName = "${IMAGE_TYPE}:$GIT_COMMIT"
+                    sh "docker build -t ${imageName} ."
+
+                    echo "Built Docker image: ${imageName}"
                 }
             }
         }
@@ -28,8 +32,7 @@ pipeline {
         stage('Login to Docker Hub') {
             steps {
                 script {
-                    // Login to Docker Hub
-                    withCredentials([usernamePassword(credentialsId: 'github', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                         sh 'echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin'
                     }
                 }
@@ -39,39 +42,14 @@ pipeline {
         stage('Push Docker Images to Docker Hub') {
             steps {
                 script {
-                    // Tag and push each service image
-                    def services = ['newpipeline_backend', 'newpipeline_frontend', 'newpipeline_database']
-                    services.each { service ->
+                        def imageName = "${IMAGE_TYPE}:$GIT_COMMIT"
                         sh """
-                        docker tag ${service} ${DOCKER_HUB_REPO}/${service}:latest
-                        docker push ${DOCKER_HUB_REPO}/${service}:latest
+                        docker push ${DOCKER_HUB_REPO}/${imageName}
                         """
-                    }
                 }
             }
-        }
-
-        stage('Pull and Run Docker Images from Docker Hub') {
-            steps {
-                script {
-                    // Pull and run each service image
-                    def services = ['newpipeline_backend', 'newpipeline_frontend', 'newpipeline_database']
-                    services.each { service ->
-                        sh """
-                        docker pull ${DOCKER_HUB_REPO}/${service}:latest
-                        docker run -d --name ${service} ${DOCKER_HUB_REPO}/${service}:latest
-                        """
-                    }
-                }
-            }
-        }
-    }
-
-    post {
-        always {
-            // Clean up Docker containers and images after completion
-            sh 'docker-compose down'
-            sh 'docker rmi $(docker images -q) || true'
         }
     }
 }
+
+
