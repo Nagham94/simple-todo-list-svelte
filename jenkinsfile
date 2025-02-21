@@ -1,0 +1,77 @@
+pipeline {
+    agent { label 'agent-vm' } // Specify the agent by its label
+
+    environment {
+        DOCKER_HUB_REPO = 'nagham94' 
+        GIT_REPO_URL = 'https://github.com/Nagham94/pizza-app2.git'  
+    }
+
+    stages {
+        stage('Checkout Code') {
+            steps {
+                script {
+                    // Pull code from the GitHub repository
+                    git credentialsId: 'github_token', url: "${GIT_REPO_URL}"
+                }
+            }
+        }
+
+        stage('Build Docker Images') {
+            steps {
+                script {
+                    // Build and tag images with Docker Compose
+                    sh 'docker-compose build'
+                }
+            }
+        }
+
+        stage('Login to Docker Hub') {
+            steps {
+                script {
+                    // Login to Docker Hub
+                    withCredentials([usernamePassword(credentialsId: 'github', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                        sh 'echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin'
+                    }
+                }
+            }
+        }
+
+        stage('Push Docker Images to Docker Hub') {
+            steps {
+                script {
+                    // Tag and push each service image
+                    def services = ['newpipeline_backend', 'newpipeline_frontend', 'newpipeline_database']
+                    services.each { service ->
+                        sh """
+                        docker tag ${service} ${DOCKER_HUB_REPO}/${service}:latest
+                        docker push ${DOCKER_HUB_REPO}/${service}:latest
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Pull and Run Docker Images from Docker Hub') {
+            steps {
+                script {
+                    // Pull and run each service image
+                    def services = ['newpipeline_backend', 'newpipeline_frontend', 'newpipeline_database']
+                    services.each { service ->
+                        sh """
+                        docker pull ${DOCKER_HUB_REPO}/${service}:latest
+                        docker run -d --name ${service} ${DOCKER_HUB_REPO}/${service}:latest
+                        """
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            // Clean up Docker containers and images after completion
+            sh 'docker-compose down'
+            sh 'docker rmi $(docker images -q) || true'
+        }
+    }
+}
